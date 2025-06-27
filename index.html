@@ -1,135 +1,98 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MyFans</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
-  <style>
-    body { font-family: sans-serif; padding: 20px; background: #f2f2f2; }
-    .hidden { display: none; }
-    .section { margin-bottom: 30px; background: #fff; padding: 15px; border-radius: 10px; box-shadow: 0 0 5px #ccc; }
-    img, video { max-width: 100%; border-radius: 10px; }
-    .post { margin-bottom: 20px; }
-  </style>
-</head>
-<body>
-  <h1>🎥 MyFans Live</h1>
+<script>
+  const supabaseUrl = "https://hfrbyclebbecxmnukjww.supabase.co";
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmcmJ5Y2xlYmJlY3htbnVrand3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEwMzU0MDcsImV4cCI6MjA2NjYxMTQwN30.I3pSwT9yHzv4Lhvz7YBW2r-UOB9Y2IwhLtvjA6MdPiI";
+  const supabase = supabase.createClient(supabaseUrl, supabaseKey);
 
-  <div class="section" id="auth">
-    <h2>Connexion / Inscription</h2>
-    <input type="email" id="email" placeholder="Email"><br><br>
-    <input type="password" id="password" placeholder="Mot de passe"><br><br>
-    <button onclick="signUp()">Inscription</button>
-    <button onclick="signIn()">Connexion</button>
-  </div>
+  let currentUser = null;
 
-  <div class="section hidden" id="upload-section">
-    <h2>📤 Ajouter un contenu</h2>
-    <input type="file" id="fileInput" accept="image/*,video/*"><br><br>
-    <button onclick="uploadFile()">Uploader</button>
-  </div>
+  async function signUp() {
+    const { error } = await supabase.auth.signUp({
+      email: email.value,
+      password: password.value,
+    });
+    if (error) return alert("Erreur inscription: " + error.message);
+    alert("Compte créé. Vérifiez votre email.");
+  }
 
-  <div class="section hidden" id="content-section">
-    <h2>🖼️ Contenu Exclusif</h2>
-    <div id="posts"></div>
-  </div>
+  async function signIn() {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.value,
+      password: password.value,
+    });
+    if (error) return alert("Erreur connexion: " + error.message);
+    currentUser = data.user;
+    loadUI();
+  }
 
-  <div class="section hidden" id="live-section">
-    <h2>🔴 Live Privé</h2>
-    <div id="live-access"></div>
-  </div>
+  async function loadUI() {
+    document.getElementById("auth").classList.add("hidden");
+    document.getElementById("upload-section").classList.remove("hidden");
+    document.getElementById("content-section").classList.remove("hidden");
+    document.getElementById("live-section").classList.remove("hidden");
+    loadPosts();
+    checkSubscription();
+  }
 
-  <script>
-    const supabaseUrl = "https://hfrbyclebbecxmnukjww.supabase.co";
-    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmcmJ5Y2xlYmJlY3htbnVrand3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEwMzU0MDcsImV4cCI6MjA2NjYxMTQwN30.I3pSwT9yHzv4Lhvz7YBW2r-UOB9Y2IwhLtvjA6MdPiI";
-    const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+  async function uploadFile() {
+    const file = document.getElementById("fileInput").files[0];
+    if (!file) return alert("Choisissez un fichier.");
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("posts").upload(fileName, file);
+    if (error) return alert("Erreur de téléchargement");
 
-    let currentUser = null;
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/posts/${fileName}`;
+    const fileType = file.type.startsWith("image") ? "image" : "video";
 
-    async function signUp() {
-      const { error } = await supabase.auth.signUp({
-        email: email.value,
-        password: password.value,
-      });
-      if (error) return alert(error.message);
-      alert("Compte créé. Vérifiez votre email.");
+    await supabase.from("posts").insert({
+      user_id: currentUser.id,
+      file_url: publicUrl,
+      type: fileType,
+    });
+
+    loadPosts();
+  }
+
+  async function loadPosts() {
+    const { data: posts } = await supabase.from("posts").select("*").order("created_at", { ascending: false });
+    const postsContainer = document.getElementById("posts");
+    postsContainer.innerHTML = "";
+    posts.forEach(post => {
+      const div = document.createElement("div");
+      div.className = "post";
+      if (post.type === "image") {
+        div.innerHTML = `<img src="${post.file_url}">`;
+      } else {
+        div.innerHTML = `<video src="${post.file_url}" controls muted></video>`;
+      }
+      postsContainer.appendChild(div);
+    });
+  }
+
+  async function checkSubscription() {
+    const { data } = await supabase.from("subscriptions").select("*").eq("user_id", currentUser.id).eq("is_paid", true);
+    const liveDiv = document.getElementById("live-access");
+    if (data.length > 0) {
+      liveDiv.innerHTML = `
+        <p>✅ Accès au live débloqué</p>
+        <iframe src="https://meet.jit.si/myfans_private_room" style="width:100%;height:400px;" allow="camera; microphone; fullscreen"></iframe>
+      `;
+    } else {
+      liveDiv.innerHTML = `<p>❌ Vous devez payer pour accéder au live.</p>`;
     }
+  }
 
-    async function signIn() {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.value,
-        password: password.value,
-      });
-      if (error) return alert(error.message);
+  // ✅ التعديل المهم هنا:
+  supabase.auth.getUser().then(({ data, error }) => {
+    if (error) {
+      alert("Erreur récupération utilisateur: " + error.message);
+      return;
+    }
+    if (data.user) {
       currentUser = data.user;
       loadUI();
+    } else {
+      alert("Aucun utilisateur connecté.");
     }
-
-    async function loadUI() {
-      document.getElementById("auth").classList.add("hidden");
-      document.getElementById("upload-section").classList.remove("hidden");
-      document.getElementById("content-section").classList.remove("hidden");
-      document.getElementById("live-section").classList.remove("hidden");
-      loadPosts();
-      checkSubscription();
-    }
-
-    async function uploadFile() {
-      const file = document.getElementById("fileInput").files[0];
-      if (!file) return alert("Choisissez un fichier.");
-      const ext = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("posts").upload(fileName, file);
-      if (error) return alert("Erreur de téléchargement");
-
-      const publicUrl = `${supabaseUrl}/storage/v1/object/public/posts/${fileName}`;
-      const fileType = file.type.startsWith("image") ? "image" : "video";
-
-      await supabase.from("posts").insert({
-        user_id: currentUser.id,
-        file_url: publicUrl,
-        type: fileType,
-      });
-
-      loadPosts();
-    }
-
-    async function loadPosts() {
-      const { data: posts } = await supabase.from("posts").select("*").order("created_at", { ascending: false });
-      const postsContainer = document.getElementById("posts");
-      postsContainer.innerHTML = "";
-      posts.forEach(post => {
-        const div = document.createElement("div");
-        div.className = "post";
-        if (post.type === "image") {
-          div.innerHTML = `<img src="${post.file_url}">`;
-        } else {
-          div.innerHTML = `<video src="${post.file_url}" controls muted></video>`;
-        }
-        postsContainer.appendChild(div);
-      });
-    }
-
-    async function checkSubscription() {
-      const { data } = await supabase.from("subscriptions").select("*").eq("user_id", currentUser.id).eq("is_paid", true);
-      const liveDiv = document.getElementById("live-access");
-      if (data.length > 0) {
-        liveDiv.innerHTML = `
-          <p>✅ Accès au live débloqué</p>
-          <iframe src="https://meet.jit.si/myfans_private_room" style="width:100%;height:400px;" allow="camera; microphone; fullscreen"></iframe>
-        `;
-      } else {
-        liveDiv.innerHTML = `<p>❌ Vous devez payer pour accéder au live.</p>`;
-      }
-    }
-
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        currentUser = data.user;
-        loadUI();
-      }
-    });
-  </script>
-</body>
-</html>
+  });
+</script>
