@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ShowMe Live</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f9f9f9; }
+    .section { margin-bottom: 30px; }
+    .hidden { display: none; }
+    img, video { max-width: 100%; height: auto; margin-bottom: 10px; }
+    .post { border: 1px solid #ccc; padding: 10px; background: #fff; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>🎥 ShowMe Live</h1>
+
+  <div class="section" id="auth">
+    <h2>Connexion / Inscription</h2>
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Mot de passe" />
+    <button onclick="signUp()">Inscription</button>
+    <button onclick="signIn()">Connexion</button>
+  </div>
+
+  <div class="section hidden" id="upload-section">
+    <h2>📤 Ajouter un contenu</h2>
+    <input type="file" id="fileInput" accept="image/*,video/*" />
+    <button onclick="uploadFile()">Uploader</button>
+  </div>
+
+  <div class="section hidden" id="content-section">
+    <h2>🖼️ Contenu Exclusif</h2>
+    <div id="posts"></div>
+  </div>
+
+  <div class="section hidden" id="live-section">
+    <h2>🔴 Live Privé</h2>
+    <div id="live-access"></div>
+  </div>
+
+  <script>
+    // Supabase init
+    const supabaseUrl = "https://mwowcivulsiizvwvcryo.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im13b3djaXZ1bHNpaXp2d3vjcryoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAzNzM2NDgsImV4cCI6MjA2NTk0OTY0OH0.nsPSKBrpBpRraeOs9GstROIbTaPpimZPP2ftsFjk_bM";
+    const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+    let currentUser = null;
+
+    async function signUp() {
+      const { error, data } = await supabase.auth.signUp({
+        email: email.value,
+        password: password.value,
+      });
+      if (error) return alert(error.message);
+      alert("Compte créé. Vérifiez votre email.");
+    }
+
+    async function signIn() {
+      const { error, data } = await supabase.auth.signInWithPassword({
+        email: email.value,
+        password: password.value,
+      });
+      if (error) return alert(error.message);
+      currentUser = data.user;
+      loadUI();
+    }
+
+    async function loadUI() {
+      document.getElementById("auth").classList.add("hidden");
+      document.getElementById("upload-section").classList.remove("hidden");
+      document.getElementById("content-section").classList.remove("hidden");
+      document.getElementById("live-section").classList.remove("hidden");
+
+      loadPosts();
+      checkSubscription();
+    }
+
+    async function uploadFile() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return alert("Choisissez un fichier");
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const { data, error } = await supabase.storage.from('posts').upload(fileName, file);
+
+      if (error) return alert("Erreur de téléchargement");
+
+      const fileUrl = `${supabaseUrl}/storage/v1/object/public/posts/${fileName}`;
+      const fileType = file.type.startsWith("image") ? "image" : "video";
+
+      await supabase.from("posts").insert({
+        user_id: currentUser.id,
+        file_url: fileUrl,
+        type: fileType,
+      });
+
+      loadPosts();
+    }
+
+    async function loadPosts() {
+      const { data: posts, error } = await supabase.from("posts").select("*").order("created_at", { ascending: false });
+      const postsContainer = document.getElementById("posts");
+      postsContainer.innerHTML = "";
+      posts.forEach(post => {
+        const div = document.createElement("div");
+        div.className = "post";
+        if (post.type === "image") {
+          div.innerHTML = `<img src="${post.file_url}" />`;
+        } else {
+          div.innerHTML = `<video src="${post.file_url}" controls muted></video>`;
+        }
+        postsContainer.appendChild(div);
+      });
+    }
+
+    async function checkSubscription() {
+      const { data, error } = await supabase.from("subscriptions").select("*").eq("user_id", currentUser.id).eq("is_paid", true);
+      const liveDiv = document.getElementById("live-access");
+      if (data.length > 0) {
+        liveDiv.innerHTML = `
+          <p>✅ Vous avez accès au live privé.</p>
+          <iframe src="https://meet.jit.si/showmelive_private_room" style="width:100%;height:400px;" allow="camera; microphone; fullscreen"></iframe>
+        `;
+      } else {
+        liveDiv.innerHTML = `<p>❌ Vous devez payer pour accéder au live.</p>`;
+      }
+    }
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        currentUser = data.user;
+        loadUI();
+      }
+    });
+  </script>
+</body>
+</html>
